@@ -6,8 +6,19 @@ import time, json
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.linear_model import LinearRegression
+import re
 
 historical_index = pd.Series()
+
+# User-Agent 및 Referer 헤더 설정
+headers = {
+	'User-Agent': (
+		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+		'AppleWebKit/537.36 (KHTML, like Gecko) '
+		'Chrome/120.0.0.0 Safari/537.36'
+	),
+	'Referer': 'https://finance.naver.com/',
+}
 
 # 날짜 형식 반환 함수
 def date_format(d=''):
@@ -17,7 +28,7 @@ def date_format(d=''):
 		this_date = pd.Timestamp.today().date()
 	return this_date
 
-# 데이터 추출 함수
+# 한국 지수 데이터 추출 함수
 def historical_index_naver(index_cd, start_date='', end_date='', page_n=1, last_page=0):
 	if start_date:
 		start_date = date_format(start_date)
@@ -54,8 +65,7 @@ def historical_index_naver(index_cd, start_date='', end_date='', page_n=1, last_
 		last_page = int(last_page.split('&')[1].split('=')[1])
 
 	if page_n < last_page:
-		page_n = page_n + 1
-		historical_index_naver(index_cd, start_date, end_date, page_n, last_page)
+		historical_index_naver(index_cd, start_date, end_date, page_n + 1, last_page)
 
 	return historical_prices
 
@@ -67,16 +77,6 @@ def index_global(d, symbol, start_date='', end_date='', max_page=2000, pause=0.3
 	start_date = date_format(start_date)
 
 	page, empty_streak = 1, 0
-
-	# User-Agent 및 Referer 헤더 설정
-	headers = {
-		'User-Agent': (
-			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-			'AppleWebKit/537.36 (KHTML, like Gecko) '
-			'Chrome/120.0.0.0 Safari/537.36'
-		),
-		'Referer': 'https://finance.naver.com/',
-	}
 
 	retry = 0
 
@@ -120,6 +120,68 @@ def index_global(d, symbol, start_date='', end_date='', max_page=2000, pause=0.3
 		time.sleep(pause)
 
 	return d
+
+# 종목의 상장주식 수와 유동비율 추출 함수
+def stock_info(stock_cd):
+	url_float = 'https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd=' + stock_cd
+	req = Request(url_float, headers=headers)
+	source = urlopen(req).read()
+	soup = BeautifulSoup(source, 'lxml')
+
+	tmp = soup.find(id='cTB11').find_all('tr')[6].td.text.strip()
+	tmp = re.split('/', tmp)
+
+	outstanding = int(tmp[0].replace(',','').replace('주','').replace(' ',''))
+	floating = float(tmp[1].replace(' ', '').replace('%',''))
+
+	name = soup.find(id='pArea').find('div').find('div').find('tr').find('td').find('span').text
+
+	k10_outstanding[stock_cd] = outstanding
+	k10_floating[stock_cd] = floating
+	k10_name[stock_cd] = name
+
+	return
+
+# 종목 주가 추출 함수
+def historical_stock_naver(stock_cd, start_date='', end_date='', page_n=1, last_page=0):
+	if start_date:
+		start_date = date_format(start_date)
+	else:
+		start_date = dt.date.today()
+	if end_date:
+		end_date = date_format(end_date)
+	else:
+		end_date = dt.date.today()
+
+	naver_stock = 'http://finance.naver.com/item/sise_day.nhn?code=' + stock_cd + '&page=' + str(page_n)
+	req = Request(naver_stock, headers=headers)
+
+	source = urlopen(req).read()
+	source = BeautifulSoup(source, 'lxml')
+
+	dates = source.find_all('span', class_='tah p10 gray03') # 날짜
+	prices = source.find_all('td', class_='num') # 종가
+
+	for n in range(len(dates)):
+		if len(dates) > 0:
+			this_date = date_format(dates[n].text)
+
+			if this_date <= end_date and this_date >= start_date:
+				this_close = float(prices[n*6].text.replace(',', ''))
+
+				historical_prices[this_date] = this_close
+			elif this_date < start_date:
+
+				return historical_prices
+			
+	if last_page == 0:
+		last_page = source.find_all('table')[1].find('td', class_='pgRR').find('a')['href']
+		last_page = float(last_page.split('&')[1].split('=')[1])
+
+	if page_n < last_page:
+		historical_stock_naver(stock_cd, start_date, end_date, page_n + 1, last_page)
+
+	return historical_prices
 
 index_cd = 'KPI200'
 historical_prices = dict()
@@ -190,6 +252,27 @@ ax_linear.set_xlabel('S&P500')
 ax_linear.set_ylabel('KOSPI200')
 
 plt.show()
+
+'''
+한국거래소 시총 상위 10종목 (2026년8월 기준)
+005930 삼성전자
+000660 SK하이닉스
+005935 삼성전자우
+402340 SK스퀘어
+009150 삼성전기
+373220 LG에너지솔루션
+005380 현대차
+207940 삼성바이오로직스
+105560 KB금융
+032830 삼성생명
+'''
+k10_component = ['005930', '000660', '005935', '402340', '009150', 
+				 '373220', '005380', '207940', '105560', '032830']
+k10_outstanding, k10_floating, k10_name = dict(), dict(), dict()
+
+for stock_cd in k10_component:
+	stock_info(stock_cd)
+print(k10_outstanding)
 
 indices = {
 	'SPI@SPX' : 'S&P 500',
