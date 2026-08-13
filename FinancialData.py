@@ -257,7 +257,6 @@ plt.show()
 한국거래소 시총 상위 10종목 (2026년8월 기준)
 005930 삼성전자
 000660 SK하이닉스
-005935 삼성전자우
 402340 SK스퀘어
 009150 삼성전기
 373220 LG에너지솔루션
@@ -265,14 +264,59 @@ plt.show()
 207940 삼성바이오로직스
 105560 KB금융
 032830 삼성생명
+028260 삼성물산
 '''
-k10_component = ['005930', '000660', '005935', '402340', '009150', 
-				 '373220', '005380', '207940', '105560', '032830']
+k10_component = ['005930', '000660', '402340', '009150', '373220', 
+				 '005380', '207940', '105560', '032830', '028260']
 k10_outstanding, k10_floating, k10_name = dict(), dict(), dict()
 
 for stock_cd in k10_component:
 	stock_info(stock_cd)
 print(k10_outstanding)
+
+k10_historical_prices = dict()
+
+for stock_cd in k10_component:
+	historical_prices = dict()
+	start_date = '2025-1-1'
+	end_date = '2025-12-31'
+	historical_stock_naver(stock_cd, start_date, end_date)
+
+	k10_historical_prices[stock_cd] = historical_prices
+
+k10_historical_prices = pd.DataFrame(k10_historical_prices).sort_index()
+k10_historical_prices = k10_historical_prices.ffill()
+k10_historical_prices = k10_historical_prices.dropna()
+print(k10_historical_prices.head(3))
+
+tmp = {'Outstanding' : k10_outstanding,
+	   'Floating' : k10_floating,
+	   'Price' : k10_historical_prices.iloc[0],
+	   'Name' : k10_name}
+k10_info = pd.DataFrame(tmp)
+k10_info['f Market Cap'] = k10_info['Outstanding'] * k10_info['Floating'] * k10_info['Price'] * 0.01
+k10_info['Market Cap'] = k10_info['Outstanding']  * k10_info['Price'] * 0.01
+print(k10_info.head(3))
+
+k10_historical_mc = k10_historical_prices * k10_info['Outstanding'] * k10_info['Floating'] * 0.01
+print(k10_historical_mc.head(3))
+k10_historical_mc.sum(axis=1) # 일자별 시가총액 합
+
+k10 = pd.DataFrame()
+k10['K10 Market Cap'] = k10_historical_mc.sum(axis=1)
+print(k10.head(3))
+
+k10['K10'] = k10['K10 Market Cap'] / k10['K10 Market Cap'].iloc[0] * 100 # 지수화
+print(k10.head(3))
+
+# K10 지수 그래프
+fig_k10 = plt.figure(figsize=(10, 5))
+ax_k10 = fig_k10.gca()
+ax_k10.plot(k10['K10'], label='K10')
+ax_k10.legend(loc=0)
+ax_k10.grid(True, color='0.7', linestyle=':', linewidth=1)
+
+plt.show()
 
 indices = {
 	'SPI@SPX' : 'S&P 500',
